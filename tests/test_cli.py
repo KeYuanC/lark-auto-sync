@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import zipfile
 
 from scripts.lark_sync import main
 
@@ -62,6 +63,23 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(payload["status"], "queue_claim_failed")
             self.assertEqual(payload["errors"], ["job_not_found"])
+
+    def test_package_includes_bilingual_readmes(self):
+        with TemporaryDirectory() as raw_root:
+            archive = Path(raw_root) / "lark-auto-sync.zip"
+
+            code, payload = _run(["--json", "package", "--output", str(archive)])
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["ok"])
+            with zipfile.ZipFile(archive) as package:
+                names = set(package.namelist())
+            self.assertTrue({
+                "lark-auto-sync/README.md",
+                "lark-auto-sync/README.zh-CN.md",
+                "lark-auto-sync/README.en.md",
+            }.issubset(names))
+            self.assertFalse(any(name.startswith("lark-auto-sync/.git/") for name in names))
 
 
 def _run(arguments: list[str]) -> tuple[int, dict]:

@@ -170,7 +170,11 @@ def _service_run(profile: Any) -> dict[str, Any]:
 
 def _package(profile: Any | None, output: Path) -> dict[str, Any]:
     del profile
-    allowed = ("SKILL.md", "agents", "scripts", "runtime", "schemas", "profiles", "references", "tests", "requirements.txt")
+    allowed = (
+        "SKILL.md", "README.md", "README.zh-CN.md", "README.en.md", "agents",
+        "scripts", "runtime", "schemas", "profiles", "references", "tests",
+        "requirements.txt",
+    )
     excluded = {".git", "__pycache__", ".state", ".automation-state", "dist"}
     output = Path(output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
