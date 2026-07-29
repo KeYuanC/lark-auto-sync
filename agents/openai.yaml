@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lark Auto Sync"
+  short_description: "Synchronize Feishu attachments safely"
+  default_prompt: "Initialize or operate a profile-driven Feishu attachment synchronization workflow."
