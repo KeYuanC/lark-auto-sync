@@ -44,6 +44,17 @@ class CsvUpdateTests(unittest.TestCase):
 
             self.assertEqual(path.read_text(encoding="utf-8-sig"), original)
 
+    def test_rejects_unknown_change_column_without_replacing_file(self):
+        with TemporaryDirectory() as raw_root:
+            path = Path(raw_root) / "people.csv"
+            original = "name,status\nAda,pending\n"
+            path.write_text(original, encoding="utf-8-sig")
+
+            with self.assertRaises(CsvHeaderError):
+                update_unique_row(path, {"name": "Ada"}, {"owner": "Bea"}, ["name", "status"])
+
+            self.assertEqual(path.read_text(encoding="utf-8-sig"), original)
+
 
 if __name__ == "__main__":
     unittest.main()

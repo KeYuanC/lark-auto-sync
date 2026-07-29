@@ -85,6 +85,34 @@ class RouterTests(unittest.TestCase):
             ["participant-ready"],
         )
 
+    def test_csv_and_previous_owner_predicates_use_route_local_job_context(self):
+        router = Router(
+            self._profile(
+                [
+                    {
+                        "id": "existing-row",
+                        "match": [
+                            {"predicate": "csv_unique_row"},
+                            {"predicate": "previous_owner_equals", "value": "Ada"},
+                        ],
+                        "action": {"adapter": "csv_update"},
+                    },
+                    {
+                        "id": "missing-row",
+                        "match": {"predicate": "csv_row_missing"},
+                        "action": {"adapter": "csv_append"},
+                    },
+                ]
+            )
+        )
+
+        decisions = router.decide(
+            {"previous_owner": "Ada", "csv_match_counts": {"existing-row": 1, "missing-row": 0}},
+            {},
+        )
+
+        self.assertEqual([decision.route_id for decision in decisions], ["existing-row", "missing-row"])
+
 
 if __name__ == "__main__":
     unittest.main()

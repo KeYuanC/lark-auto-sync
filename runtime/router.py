@@ -1,15 +1,26 @@
-"""Deterministic Profile route evaluation without executable expressions."""
+"""Deterministic Profile-only route selection."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from runtime.models import Profile
-from runtime.safety import require_safe_identifier
 
 
-APPROVED_PREDICATES = frozenset(
+class RouteConfigurationError(ValueError):
+    """A Profile route requests unsupported routing behavior."""
+
+
+@dataclass(frozen=True)
+class RouteDecision:
+    """One route whose fixed match predicates all evaluated to true."""
+
+    route_id: str
+    action: dict[str, Any]
+
+
+_PREDICATES = frozenset(
     {
         "always",
         "filename_contains",
@@ -20,170 +31,112 @@ APPROVED_PREDICATES = frozenset(
         "previous_owner_equals",
     }
 )
-APPROVED_ACTIONS = frozenset(
+_ACTIONS = frozenset(
     {"csv_update", "csv_append", "local_publish", "github_publish", "lark_receipt"}
 )
 
 
-class RouteConfigurationError(ValueError):
-    """A route uses a predicate or adapter outside the fixed vocabulary."""
-
-
-@dataclass(frozen=True)
-class RouteDecision:
-    """One matching Profile route, retained in the Profile's declared order."""
-
-    route_id: str
-    action: dict[str, Any]
-
-
 class Router:
-    """Evaluate only fixed predicates against the supplied job and extraction."""
+    """Evaluate allowlisted Profile predicates in their declared order."""
 
-    def __init__(self, profile: Profile):
+    def __init__(self, profile: Profile) -> None:
         self._profile = profile
-        routes = profile.data.get("routes", [])
-        if not isinstance(routes, list):
-            raise RouteConfigurationError("routes_must_be_list")
-        self._routes = tuple(self._validate_route(route) for route in routes)
+        raw_routes = profile.data.get("routes", [])
+        if not isinstance(raw_routes, list):
+            raise RouteConfigurationError("routes_must_be_an_array")
+        self._routes = tuple(self._validate_route(route) for route in raw_routes)
 
     def decide(self, job: dict, extracted: dict) -> list[RouteDecision]:
-        """Return every matching route in declaration order.
-
-        The router deliberately accepts only the job and extraction supplied by
-        its caller. In particular, it never evaluates code, opens route paths,
-        or makes network calls while deciding.
-        """
+        """Return matching routes without mutating the job or extraction payload."""
         if not isinstance(job, dict) or not isinstance(extracted, dict):
-            raise RouteConfigurationError("route_inputs_must_be_objects")
+            raise RouteConfigurationError("job_and_extraction_must_be_objects")
 
         decisions: list[RouteDecision] = []
         for route_id, predicates, action in self._routes:
-            if all(self._matches(predicate, job, extracted) for predicate in predicates):
+            if all(self._matches(predicate, route_id, job, extracted) for predicate in predicates):
                 decisions.append(RouteDecision(route_id=route_id, action=dict(action)))
         return decisions
 
-    @staticmethod
-    def _validate_route(route: Any) -> tuple[str, tuple[dict[str, Any], ...], dict[str, Any]]:
+    def _validate_route(self, route: Any) -> tuple[str, tuple[dict[str, Any], ...], dict[str, Any]]:
         if not isinstance(route, dict):
-            raise RouteConfigurationError("route_must_be_object")
-        try:
-            route_id = require_safe_identifier(route["id"])
-        except (KeyError, TypeError, ValueError) as error:
-            raise RouteConfigurationError("unsafe_route_id") from error
-
-        predicates = Router._normalise_predicates(route.get("match"))
+            raise RouteConfigurationError("route_must_be_an_object")
+        route_id = route.get("id")
+        if not isinstance(route_id, str) or not route_id:
+            raise RouteConfigurationError("route_id_required")
+        predicates = self._validate_predicates(route.get("match"))
         action = route.get("action")
-        if not isinstance(action, dict):
-            raise RouteConfigurationError(f"invalid_action:{route_id}")
+        if not isinstance(action, dict) or set(action) - {"adapter", "config"}:
+            raise RouteConfigurationError("unsupported_route_action_shape")
         adapter = action.get("adapter")
-        if adapter not in APPROVED_ACTIONS:
-            raise RouteConfigurationError(f"unknown_action:{adapter}")
+        if adapter not in _ACTIONS:
+            raise RouteConfigurationError("unsupported_route_action")
+        if "config" in action and not isinstance(action["config"], str):
+            raise RouteConfigurationError("route_action_config_must_be_string")
         return route_id, predicates, dict(action)
 
-    @staticmethod
-    def _normalise_predicates(match: Any) -> tuple[dict[str, Any], ...]:
-        if isinstance(match, list):
-            raw_predicates = match
-        elif isinstance(match, dict) and "all" in match:
-            if set(match) != {"all"} or not isinstance(match["all"], list):
-                raise RouteConfigurationError("invalid_predicate_group")
-            raw_predicates = match["all"]
-        elif isinstance(match, dict) and "predicates" in match:
-            if set(match) != {"predicates"} or not isinstance(match["predicates"], list):
-                raise RouteConfigurationError("invalid_predicate_group")
-            raw_predicates = match["predicates"]
-        else:
-            raw_predicates = [match]
+    def _validate_predicates(self, match: Any) -> tuple[dict[str, Any], ...]:
+        candidates = [match] if isinstance(match, dict) else match
+        if not isinstance(candidates, list) or not candidates:
+            raise RouteConfigurationError("route_match_required")
 
-        if not raw_predicates:
-            raise RouteConfigurationError("route_requires_predicate")
-
-        predicates: list[dict[str, Any]] = []
-        for predicate in raw_predicates:
+        validated: list[dict[str, Any]] = []
+        for predicate in candidates:
             if not isinstance(predicate, dict):
-                raise RouteConfigurationError("predicate_must_be_object")
-            name = predicate.get("predicate", predicate.get("adapter"))
-            if name not in APPROVED_PREDICATES:
-                raise RouteConfigurationError(f"unknown_predicate:{name}")
-            normalised = dict(predicate)
-            normalised["predicate"] = name
-            Router._validate_predicate_arguments(normalised)
-            predicates.append(normalised)
-        return tuple(predicates)
+                raise RouteConfigurationError("predicate_must_be_an_object")
+            name = predicate.get("predicate")
+            if name not in _PREDICATES:
+                raise RouteConfigurationError("unsupported_route_predicate")
+            self._validate_predicate_arguments(name, predicate)
+            validated.append(dict(predicate))
+        return tuple(validated)
 
     @staticmethod
-    def _validate_predicate_arguments(predicate: Mapping[str, Any]) -> None:
-        name = predicate["predicate"]
-        if name == "filename_contains":
-            value = predicate.get("value", predicate.get("contains"))
-            if not isinstance(value, str) or not value:
-                raise RouteConfigurationError("filename_contains_requires_value")
+    def _validate_predicate_arguments(name: str, predicate: dict[str, Any]) -> None:
+        allowed = {"predicate"}
+        required: set[str] = set()
+        if name in {"filename_contains", "previous_owner_equals"}:
+            allowed.add("value")
+            required.add("value")
         elif name == "field_complete":
-            if not isinstance(predicate.get("field"), str) or not predicate["field"]:
-                raise RouteConfigurationError("field_complete_requires_field")
-        elif name == "previous_owner_equals":
-            field = predicate.get("field", "previous_owner")
-            value = predicate.get("value", predicate.get("equals"))
-            if not isinstance(field, str) or not field or not isinstance(value, str):
-                raise RouteConfigurationError("previous_owner_equals_requires_field_and_value")
-        elif name in {"csv_unique_row", "csv_row_missing"}:
-            key = predicate.get("key", predicate.get("config"))
-            if key is not None and (not isinstance(key, str) or not key):
-                raise RouteConfigurationError("csv_predicate_requires_safe_key")
+            allowed.add("field")
+            required.add("field")
+        if set(predicate) - allowed or required - set(predicate):
+            raise RouteConfigurationError("invalid_route_predicate_arguments")
+        if "value" in predicate and (not isinstance(predicate["value"], str) or not predicate["value"]):
+            raise RouteConfigurationError("predicate_value_must_be_nonempty_string")
+        if "field" in predicate and (not isinstance(predicate["field"], str) or not predicate["field"]):
+            raise RouteConfigurationError("predicate_field_must_be_nonempty_string")
 
     @staticmethod
-    def _matches(predicate: Mapping[str, Any], job: Mapping[str, Any], extracted: Mapping[str, Any]) -> bool:
+    def _matches(predicate: dict[str, Any], route_id: str, job: dict, extracted: dict) -> bool:
         name = predicate["predicate"]
+        filename = job.get("filename")
         if name == "always":
             return True
-
-        filename = job.get("filename")
         if name == "filename_contains":
-            needle = predicate.get("value", predicate.get("contains"))
-            return isinstance(filename, str) and needle in filename
-
+            return isinstance(filename, str) and predicate["value"].casefold() in filename.casefold()
         if name == "participant_in_filename":
             if not isinstance(filename, str):
                 return False
-            participant = predicate.get("participant")
-            if participant is not None:
-                return isinstance(participant, str) and participant in filename
-            participants = extracted.get("participants", [])
+            participants = extracted.get("participants")
             return isinstance(participants, list) and any(
-                isinstance(value, str) and value and value in filename for value in participants
+                isinstance(participant, str) and participant.casefold() in filename.casefold()
+                for participant in participants
             )
-
         if name in {"csv_unique_row", "csv_row_missing"}:
-            count = Router._csv_match_count(predicate, job)
-            return count == (1 if name == "csv_unique_row" else 0)
-
+            count = Router._csv_match_count(job, route_id)
+            return count == 1 if name == "csv_unique_row" else count == 0
         if name == "field_complete":
-            return Router._is_complete(extracted.get(predicate["field"]))
-
+            value = extracted.get(predicate["field"])
+            return isinstance(value, str) and bool(value.strip())
         if name == "previous_owner_equals":
-            field = predicate.get("field", "previous_owner")
-            expected = predicate.get("value", predicate.get("equals"))
-            return job.get(field) == expected
-
-        raise RouteConfigurationError(f"unknown_predicate:{name}")
+            return job.get("previous_owner") == predicate["value"]
+        raise RouteConfigurationError("unsupported_route_predicate")
 
     @staticmethod
-    def _csv_match_count(predicate: Mapping[str, Any], job: Mapping[str, Any]) -> int | None:
-        key = predicate.get("key", predicate.get("config"))
+    def _csv_match_count(job: dict, route_id: str) -> int | None:
         counts = job.get("csv_match_counts")
-        if key is not None and isinstance(counts, dict):
-            value = counts.get(key)
-        elif key is None:
-            value = job.get("csv_match_count")
-        else:
-            value = None
-        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-
-    @staticmethod
-    def _is_complete(value: Any) -> bool:
-        if isinstance(value, str):
-            return bool(value.strip())
-        if isinstance(value, (list, tuple, set, dict)):
-            return bool(value)
-        return value is not None
+        if not isinstance(counts, dict):
+            return None
+        count = counts.get(route_id)
+        return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None

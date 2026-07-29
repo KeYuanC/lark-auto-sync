@@ -1,1 +1,2 @@
-"""Fixed, non-executable output adapters for lark-auto-sync."""
+"""Deterministic adapters available to the Lark Auto Sync runtime."""
+
