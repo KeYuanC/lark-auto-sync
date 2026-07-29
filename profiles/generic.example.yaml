@@ -1,0 +1,62 @@
+profile:
+  id: generic-attachment-sync
+  version: 1
+
+workspace:
+  root: ./example-workspace
+  state_directory: .lark-auto-sync
+
+source:
+  chat_ids:
+    - oc_replace_with_allowed_chat_id
+  bot_name: Lark Sync Bot
+  mention_window_seconds: 180
+  attachment_types:
+    - txt
+    - md
+    - docx
+    - doc
+  max_attachment_mb: 20
+
+processing:
+  converter: markdown
+  extraction_schema: config/extraction.schema.json
+  participant_sources:
+    - filename
+    - h1
+  deduplication:
+    normalize_names: true
+    normalize_terms: true
+    compare_facts: true
+
+routes:
+  - id: publish-local
+    match:
+      predicate: always
+    action:
+      adapter: local_publish
+  - id: publish-github
+    match:
+      predicate: always
+    action:
+      adapter: github_publish
+  - id: send-receipt
+    match:
+      predicate: always
+    action:
+      adapter: lark_receipt
+
+publish:
+  local:
+    directory: published/attachments
+  github:
+    repository: example-org/example-repository
+    branch: main
+    path: synced/attachments
+  lark_receipt:
+    enabled: true
+    template: "Published {{filename}} to {{local_destinations}} and {{github_destinations}}. Commit: {{commit}}."
+
+retention:
+  delete_source_after_verified_publish: true
+  failed_job_days: 30

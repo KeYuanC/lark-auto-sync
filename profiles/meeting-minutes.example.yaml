@@ -1,0 +1,85 @@
+profile:
+  id: meeting-minutes-sync
+  version: 1
+
+workspace:
+  root: ./example-workspace
+  state_directory: .lark-auto-sync
+
+source:
+  chat_ids:
+    - oc_replace_with_allowed_chat_id
+  bot_name: Meeting Sync Bot
+  mention_window_seconds: 180
+  attachment_types:
+    - txt
+    - md
+    - docx
+    - doc
+  max_attachment_mb: 20
+
+processing:
+  converter: markdown
+  extraction_schema: config/meeting-extraction.schema.json
+  aliases: config/name-aliases.yaml
+  terminology: config/terminology.yaml
+  participant_sources:
+    - filename
+    - h1
+  deduplication:
+    normalize_names: true
+    normalize_terms: true
+    compare_facts: true
+
+routes:
+  - id: advanced-plan
+    match:
+      - predicate: filename_contains
+        value: advanced
+      - predicate: csv_unique_row
+    action:
+      adapter: csv_update
+      config: config/advanced-plan.yaml
+  - id: weekly-plan
+    match:
+      - predicate: participant_in_filename
+      - predicate: csv_unique_row
+    action:
+      adapter: csv_update
+      config: config/weekly-plan.yaml
+  - id: customer-issues
+    match:
+      predicate: csv_row_missing
+    action:
+      adapter: csv_append
+      config: config/customer-issues.yaml
+  - id: publish-local
+    match:
+      predicate: always
+    action:
+      adapter: local_publish
+  - id: publish-github
+    match:
+      predicate: always
+    action:
+      adapter: github_publish
+  - id: send-receipt
+    match:
+      predicate: always
+    action:
+      adapter: lark_receipt
+
+publish:
+  local:
+    directory: published/meeting-minutes
+  github:
+    repository: example-org/example-repository
+    branch: main
+    path: project/meeting-minutes
+  lark_receipt:
+    enabled: true
+    template: "Processed {{filename}}. Local: {{local_destinations}}. GitHub: {{github_destinations}}. Routes: {{routes}}. Paused: {{paused_participants}}. Commit: {{commit}}."
+
+retention:
+  delete_source_after_verified_publish: true
+  failed_job_days: 30
