@@ -50,6 +50,8 @@
       "properties": {
         "converter": {"const": "markdown"},
         "extraction_schema": {"type": "string", "minLength": 1},
+        "aliases": {"type": "string", "minLength": 1},
+        "terminology": {"type": "string", "minLength": 1},
         "participant_sources": {
           "type": "array",
           "uniqueItems": true,

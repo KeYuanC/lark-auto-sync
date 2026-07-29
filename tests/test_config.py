@@ -97,6 +97,52 @@ class ProfileTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 profile.resolve_path("../outside.md")
 
+    def test_validates_processing_alias_and_terminology_paths(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            valid = root / "valid.yaml"
+            valid.write_text(
+                "profile:\n"
+                "  id: demo\n"
+                "  version: 1\n"
+                "workspace:\n"
+                "  root: ./workspace\n"
+                "source:\n"
+                "  chat_ids: [oc_demo]\n"
+                "processing:\n"
+                "  aliases: config/aliases.yaml\n"
+                "  terminology: config/terminology.yaml\n",
+                encoding="utf-8",
+            )
+
+            profile = load_profile(valid)
+
+            self.assertEqual(
+                profile.resolve_path(profile.data["processing"]["aliases"]),
+                root / "workspace" / "config" / "aliases.yaml",
+            )
+            self.assertEqual(
+                profile.resolve_path(profile.data["processing"]["terminology"]),
+                root / "workspace" / "config" / "terminology.yaml",
+            )
+
+            for field in ("aliases", "terminology"):
+                escaping = root / f"{field}-escaping.yaml"
+                escaping.write_text(
+                    "profile:\n"
+                    "  id: demo\n"
+                    "  version: 1\n"
+                    "workspace:\n"
+                    "  root: ./workspace\n"
+                    "source:\n"
+                    "  chat_ids: [oc_demo]\n"
+                    "processing:\n"
+                    f"  {field}: ../outside.yaml\n",
+                    encoding="utf-8",
+                )
+                with self.subTest(field=field), self.assertRaises(ProfileError):
+                    load_profile(escaping)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,8 @@ _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "profile.schema
 _PATH_FIELDS = (
     ("workspace", "state_directory"),
     ("processing", "extraction_schema"),
+    ("processing", "aliases"),
+    ("processing", "terminology"),
     ("publish", "local", "directory"),
     ("publish", "github", "path"),
     ("publish", "lark_receipt", "template"),
