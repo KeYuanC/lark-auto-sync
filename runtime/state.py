@@ -120,4 +120,3 @@ def append_audit_record(paths: StatePaths, workspace_root: Path, record: Mapping
     with (paths.logs / "audit.jsonl").open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
         handle.write("\n")
-
