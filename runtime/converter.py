@@ -240,10 +240,10 @@ def _find_windows_word() -> Path | None:
 
 def _convert_doc_to_docx(source: Path, output_root: Path, converter: tuple[str, Path]) -> Path:
     name, executable = converter
+    if name == "word":
+        return _word_com_convert(source, output_root, executable)
     if name != "libreoffice":
-        # Word has no stable, macro-free command line conversion mode. A
-        # discovered executable alone is insufficient for safe conversion.
-        raise ConversionDependencyError("word_automation_unavailable")
+        raise ConversionDependencyError("doc_converter_unavailable")
 
     completed = subprocess.run(
         [str(executable), "--headless", "--convert-to", "docx", "--outdir", str(output_root), str(source)],
@@ -256,4 +256,61 @@ def _convert_doc_to_docx(source: Path, output_root: Path, converter: tuple[str, 
     output = output_root / f"{source.stem}.docx"
     if completed.returncode != 0 or not output.is_file():
         raise ConversionError("doc_conversion_failed")
+    return output
+
+
+def _word_com_convert(source: Path, output_root: Path, executable: Path) -> Path:
+    """Convert a legacy document with Word's macro-free COM API.
+
+    ``executable`` is discovered before this function is called. COM starts
+    the registered Word server without constructing a command line from the
+    attachment, so the document path is data passed to the automation API,
+    never an executable argument or shell fragment.
+    """
+
+    del executable
+    try:
+        import win32com.client  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise ConversionDependencyError("word_com_unavailable") from error
+
+    output = output_root / f"{source.stem}.docx"
+    application = None
+    document = None
+    try:
+        application = win32com.client.DispatchEx("Word.Application")
+        application.Visible = False
+        application.DisplayAlerts = 0
+        # msoAutomationSecurityForceDisable prevents document auto-macros.
+        application.AutomationSecurity = 3
+        document = application.Documents.Open(
+            FileName=str(source),
+            ConfirmConversions=False,
+            ReadOnly=True,
+            AddToRecentFiles=False,
+            Visible=False,
+            OpenAndRepair=False,
+            NoEncodingDialog=True,
+        )
+        document.SaveAs2(
+            FileName=str(output),
+            FileFormat=16,  # wdFormatDocumentDefault (.docx)
+            AddToRecentFiles=False,
+        )
+    except Exception as error:
+        raise ConversionError("word_conversion_failed") from error
+    finally:
+        if document is not None:
+            try:
+                document.Close(SaveChanges=0)
+            except Exception:
+                pass
+        if application is not None:
+            try:
+                application.Quit(SaveChanges=0)
+            except Exception:
+                pass
+
+    if not output.is_file():
+        raise ConversionError("word_conversion_failed")
     return output
