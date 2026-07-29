@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["profile", "workspace", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "profile": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
+        "version": {"const": 1}
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["root"],
+      "additionalProperties": false,
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "state_directory": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["chat_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "chat_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "bot_name": {"type": "string", "minLength": 1},
+        "mention_window_seconds": {"type": "integer", "minimum": 1},
+        "attachment_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["txt", "md", "docx", "doc"]}
+        },
+        "max_attachment_mb": {"type": "integer", "minimum": 1}
+      }
+    },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "converter": {"const": "markdown"},
+        "extraction_schema": {"type": "string", "minLength": 1},
+        "participant_sources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["filename", "h1"]}
+        },
+        "deduplication": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "normalize_names": {"type": "boolean"},
+            "normalize_terms": {"type": "boolean"},
+            "compare_facts": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "match", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
+          "match": {"$ref": "#/$defs/route_section"},
+          "action": {"$ref": "#/$defs/route_section"}
+        }
+      }
+    },
+    "publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "local": {
+          "type": "object",
+          "required": ["directory"],
+          "additionalProperties": false,
+          "properties": {"directory": {"type": "string", "minLength": 1}}
+        },
+        "github": {
+          "type": "object",
+          "required": ["repository", "branch", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+            "branch": {"type": "string", "minLength": 1},
+            "path": {"type": "string", "minLength": 1}
+          }
+        },
+        "lark_receipt": {
+          "type": "object",
+          "required": ["enabled", "template"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "template": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "delete_source_after_verified_publish": {"type": "boolean"},
+        "failed_job_days": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "$defs": {
+    "route_section": {
+      "type": "object",
+      "required": ["adapter"],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {"type": "string", "minLength": 1},
+        "config": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
