@@ -55,6 +55,13 @@ Allowed `action.adapter` values are `csv_update`, `csv_append`, `local_publish`,
 is a relative, workspace-contained path to that adapter's approved mapping. Do not
 put a command, code, dynamic expression, absolute path, or `..` path in a route.
 
+For `csv_update`, the action config YAML contains `path`, `expected_headers`,
+`identity`, and `changes`. For `csv_append`, use `path`, `expected_headers`, and
+`record`. The mapping values are literal text or one of `{{participant}}` and an
+extraction field such as `{{summary}}`. Every update runs once per participant;
+an update route requires exactly one matching row for each participant, and an
+append route adds one fully mapped record for each participant.
+
 ## Publishing And Receipts
 
 `publish.local.directory` is a relative destination under the workspace.

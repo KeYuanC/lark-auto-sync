@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from runtime.adapters.csv_update import CsvAmbiguityError, CsvHeaderError, update_unique_row
+from runtime.adapters.csv_update import CsvAmbiguityError, CsvHeaderError, append_record, update_unique_row
 
 
 class CsvUpdateTests(unittest.TestCase):
@@ -54,6 +54,16 @@ class CsvUpdateTests(unittest.TestCase):
                 update_unique_row(path, {"name": "Ada"}, {"owner": "Bea"}, ["name", "status"])
 
             self.assertEqual(path.read_text(encoding="utf-8-sig"), original)
+
+    def test_appends_exactly_mapped_record(self):
+        with TemporaryDirectory() as raw_root:
+            path = Path(raw_root) / "people.csv"
+            path.write_text("name,status\nAda,pending\n", encoding="utf-8-sig")
+
+            result = append_record(path, {"name": "Bea", "status": "done"}, ["name", "status"])
+
+            self.assertEqual(result.row_index, 1)
+            self.assertIn("Bea,done", path.read_text(encoding="utf-8-sig"))
 
 
 if __name__ == "__main__":

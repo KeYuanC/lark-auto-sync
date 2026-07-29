@@ -70,6 +70,26 @@ def update_unique_row(
     return CsvUpdateResult(path=csv_path, row_index=row_index, updated=True)
 
 
+def append_record(path: Path, record: dict[str, str], expected_headers: list[str]) -> CsvUpdateResult:
+    """Append one fully mapped record after exact-header validation."""
+    csv_path = Path(path)
+    headers = _validate_record(record, expected_headers)
+    try:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle, restkey="__extra_columns__")
+            if reader.fieldnames != headers:
+                raise CsvHeaderError("csv_headers_do_not_match_profile")
+            rows = list(reader)
+    except CsvUpdateError:
+        raise
+    except (OSError, UnicodeError, csv.Error) as error:
+        raise CsvUpdateError("csv_read_error") from error
+    _validate_rows(rows, headers)
+    rows.append(dict(record))
+    _replace_atomically(csv_path, headers, rows)
+    return CsvUpdateResult(path=csv_path, row_index=len(rows) - 1, updated=True)
+
+
 def _validate_inputs(
     identity: dict[str, str], changes: dict[str, str], expected_headers: list[str]
 ) -> list[str]:
@@ -90,6 +110,16 @@ def _validate_inputs(
                 raise CsvHeaderError(f"unknown_{label}_column")
             if not isinstance(value, str):
                 raise CsvUpdateError(f"{label}_values_must_be_strings")
+    return list(expected_headers)
+
+
+def _validate_record(record: dict[str, str], expected_headers: list[str]) -> list[str]:
+    if not isinstance(expected_headers, list) or not expected_headers or len(set(expected_headers)) != len(expected_headers):
+        raise CsvHeaderError("invalid_expected_headers")
+    if not isinstance(record, dict) or set(record) != set(expected_headers):
+        raise CsvHeaderError("record_columns_do_not_match_profile")
+    if any(not isinstance(value, str) for value in record.values()):
+        raise CsvUpdateError("record_values_must_be_strings")
     return list(expected_headers)
 
 
