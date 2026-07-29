@@ -78,7 +78,7 @@ publish:
     path: project/meeting-minutes
   lark_receipt:
     enabled: true
-    template: "Processed {{filename}}. Local: {{local_destinations}}. GitHub: {{github_destinations}}. Routes: {{routes}}. Paused: {{paused_participants}}. Commit: {{commit}}."
+    template: config/receipt.txt
 
 retention:
   delete_source_after_verified_publish: true

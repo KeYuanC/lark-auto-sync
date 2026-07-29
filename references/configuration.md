@@ -63,8 +63,9 @@ the permitted branch, and `publish.github.path` is a relative path within that
 repository. The publisher stages only its allowlisted output paths, uses a fresh
 worktree, fetches the remote immediately before publishing, and never force pushes.
 
-`publish.lark_receipt.enabled` controls replies. Its `template` may use only these
-placeholders: `{{filename}}`, `{{local_destinations}}`, `{{github_destinations}}`,
+`publish.lark_receipt.enabled` controls replies. Its `template` is a relative,
+workspace-contained UTF-8 text file. The file may use only these placeholders:
+`{{filename}}`, `{{local_destinations}}`, `{{github_destinations}}`,
 `{{routes}}`, `{{paused_participants}}`, and `{{commit}}`. Unknown placeholders
 are rejected. A receipt must name the destinations actually published.
 

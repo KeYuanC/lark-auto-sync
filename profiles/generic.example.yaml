@@ -55,7 +55,7 @@ publish:
     path: synced/attachments
   lark_receipt:
     enabled: true
-    template: "Published {{filename}} to {{local_destinations}} and {{github_destinations}}. Commit: {{commit}}."
+    template: config/receipt.txt
 
 retention:
   delete_source_after_verified_publish: true
