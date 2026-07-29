@@ -6,6 +6,7 @@ from unittest.mock import patch
 from runtime.converter import (
     ConversionDependencyError,
     _convert_doc_to_docx,
+    _word_com_convert,
     convert_attachment,
 )
 
@@ -44,3 +45,22 @@ class ConverterTests(unittest.TestCase):
 
             self.assertEqual(result, converted)
             convert.assert_called_once_with(source, root, word)
+
+    def test_word_com_falls_back_to_powershell_without_pywin32(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            source = root / "note.doc"
+            source.write_bytes(b"not-a-real-doc")
+            word = root / "WINWORD.EXE"
+            converted = root / "note.docx"
+
+            with (
+                patch("runtime.converter._load_word_com_client", side_effect=ImportError),
+                patch(
+                    "runtime.converter._word_powershell_com_convert", return_value=converted
+                ) as convert,
+            ):
+                result = _word_com_convert(source, root, word)
+
+            self.assertEqual(result, converted)
+            convert.assert_called_once_with(source, root)

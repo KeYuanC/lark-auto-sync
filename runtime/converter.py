@@ -20,6 +20,43 @@ MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
 _OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _ZIP_HEADER = b"PK\x03\x04"
 _WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_WORD_SOURCE_ENV = "LARK_AUTO_SYNC_WORD_SOURCE"
+_WORD_OUTPUT_ENV = "LARK_AUTO_SYNC_WORD_OUTPUT"
+_WORD_POWERSHELL_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$source = [Environment]::GetEnvironmentVariable('LARK_AUTO_SYNC_WORD_SOURCE', 'Process')
+$output = [Environment]::GetEnvironmentVariable('LARK_AUTO_SYNC_WORD_OUTPUT', 'Process')
+if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($output)) {
+    throw 'word_conversion_paths_missing'
+}
+
+$application = $null
+$document = $null
+try {
+    $application = New-Object -ComObject Word.Application
+    $application.Visible = $false
+    $application.DisplayAlerts = 0
+    $application.AutomationSecurity = 3
+    $application.Options.UpdateLinksAtOpen = $false
+    $document = $application.Documents.Open($source, $false, $true, $false)
+    $document.SaveAs2($output, 16)
+}
+finally {
+    if ($null -ne $document) {
+        $document.Close(0)
+    }
+    if ($null -ne $application) {
+        $application.Quit(0)
+    }
+}
+"""
+_WORD_POWERSHELL_ARGS = (
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    _WORD_POWERSHELL_SCRIPT,
+)
 
 
 class ConversionError(ValueError):
@@ -270,15 +307,15 @@ def _word_com_convert(source: Path, output_root: Path, executable: Path) -> Path
 
     del executable
     try:
-        import win32com.client  # type: ignore[import-not-found]
-    except ImportError as error:
-        raise ConversionDependencyError("word_com_unavailable") from error
+        word_client = _load_word_com_client()
+    except ImportError:
+        return _word_powershell_com_convert(source, output_root)
 
     output = output_root / f"{source.stem}.docx"
     application = None
     document = None
     try:
-        application = win32com.client.DispatchEx("Word.Application")
+        application = word_client.DispatchEx("Word.Application")
         application.Visible = False
         application.DisplayAlerts = 0
         # msoAutomationSecurityForceDisable prevents document auto-macros.
@@ -314,3 +351,50 @@ def _word_com_convert(source: Path, output_root: Path, executable: Path) -> Path
     if not output.is_file():
         raise ConversionError("word_conversion_failed")
     return output
+
+
+def _load_word_com_client():
+    import win32com.client  # type: ignore[import-not-found]
+
+    return win32com.client
+
+
+def _word_powershell_com_convert(source: Path, output_root: Path) -> Path:
+    """Use built-in Windows PowerShell when the optional pywin32 module is absent."""
+
+    powershell = _find_windows_powershell()
+    if powershell is None:
+        raise ConversionDependencyError("word_com_unavailable")
+
+    output = output_root / f"{source.stem}.docx"
+    environment = os.environ.copy()
+    environment[_WORD_SOURCE_ENV] = str(source)
+    environment[_WORD_OUTPUT_ENV] = str(output)
+    completed = subprocess.run(
+        [str(powershell), *_WORD_POWERSHELL_ARGS],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        shell=False,
+        env=environment,
+    )
+    if completed.returncode != 0 or not output.is_file():
+        raise ConversionError("word_conversion_failed")
+    return output
+
+
+def _find_windows_powershell() -> Path | None:
+    system_root = os.environ.get("SystemRoot")
+    if system_root:
+        candidate = (
+            Path(system_root)
+            / "System32"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
+        if candidate.is_file():
+            return candidate
+    found = shutil.which("powershell.exe")
+    return Path(found) if found else None
