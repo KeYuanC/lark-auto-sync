@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lark Auto Sync Extraction",
+  "type": "object",
+  "required": ["participants", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "participants": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "issue_title": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "summary": {"type": "string"},
+    "facts": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "decisions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "follow_up_actions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
