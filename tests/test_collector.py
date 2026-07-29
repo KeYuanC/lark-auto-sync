@@ -19,6 +19,47 @@ class FakeLarkClient:
 
 
 class CollectorTests(unittest.TestCase):
+    def test_keeps_pending_job_and_staged_source_when_download_fails(self):
+        class PartialDownloadClient(FakeLarkClient):
+            def download_file(self, file_key: str, destination: Path) -> None:
+                self.downloaded.append(file_key)
+                destination.write_text("partial attachment", encoding="utf-8")
+                raise OSError("network interrupted")
+
+        with TemporaryDirectory() as raw_root:
+            client = PartialDownloadClient()
+            collector = Collector.for_test(
+                Path(raw_root), client, bot_name="Sync Bot", window_seconds=180
+            )
+            collector.handle_message(
+                {
+                    "id": "mention-1",
+                    "chat_id": "oc_demo",
+                    "sender": "Ada",
+                    "text": "@Sync Bot",
+                    "created_at": 1000,
+                }
+            )
+
+            jobs = collector.handle_message(
+                {
+                    "id": "attachment-1",
+                    "chat_id": "oc_demo",
+                    "sender": "Ada",
+                    "file_key": "file_1",
+                    "filename": "Person A.md",
+                    "created_at": 1010,
+                }
+            )
+
+            self.assertEqual(len(jobs), 1)
+            pending = collector.queue.list_pending()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["job_id"], jobs[0])
+            self.assertEqual(pending[0]["intake_error"], "download_failed")
+            self.assertTrue(Path(pending[0]["source_path"]).is_file())
+            self.assertIn("markdown_path", pending[0])
+
     def test_queues_attachment_after_matching_mention(self):
         with TemporaryDirectory() as raw_root:
             client = FakeLarkClient()

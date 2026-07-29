@@ -10,6 +10,7 @@ import re
 from typing import Any, Mapping
 
 from runtime.converter import ConversionError, convert_attachment
+from runtime.lark_client import LarkClientError
 from runtime.models import Profile
 from runtime.queue import Queue, QueueConflictError
 
@@ -131,26 +132,71 @@ class Collector:
             if callable(bind):
                 bind(attachment.file_key, attachment.message_id)
             self.client.download_file(attachment.file_key, source_path)
-            if not source_path.is_file():
-                raise CollectorError("download_output_missing")
+        except (LarkClientError, OSError, ValueError):
+            return self._enqueue_intake_failure(
+                job_id, attachment, source_path, markdown_path, "download_failed"
+            )
+
+        if not source_path.is_file():
+            return self._enqueue_intake_failure(
+                job_id, attachment, source_path, markdown_path, "download_output_missing"
+            )
+
+        try:
             result = convert_attachment(source_path, markdown_path)
+        except (ConversionError, OSError, ValueError):
+            return self._enqueue_intake_failure(
+                job_id, attachment, source_path, markdown_path, "conversion_failed"
+            )
+
+        try:
             job = self.queue.enqueue(
-                {
-                    "job_id": job_id,
-                    "message_id": attachment.message_id,
-                    "source_create_time": attachment.created_at,
-                    "sender_name": attachment.sender_name,
-                    "filename": source_path.name,
-                    "source_path": str(source_path),
-                    "markdown_path": str(result.output_path),
-                    "profile_id": self.profile.id,
-                }
+                self._job_payload(
+                    job_id,
+                    attachment,
+                    source_path,
+                    result.output_path,
+                )
             )
         except QueueConflictError:
             return []
-        except (ConversionError, OSError, ValueError, CollectorError):
+        return [str(job["job_id"])]
+
+    def _enqueue_intake_failure(
+        self,
+        job_id: str,
+        attachment: _File,
+        source_path: Path,
+        markdown_path: Path,
+        intake_error: str,
+    ) -> list[str]:
+        payload = self._job_payload(job_id, attachment, source_path, markdown_path)
+        if not source_path.is_file():
+            payload.pop("source_path", None)
+        payload["intake_error"] = intake_error
+        try:
+            job = self.queue.enqueue(payload)
+        except QueueConflictError:
             return []
         return [str(job["job_id"])]
+
+    def _job_payload(
+        self,
+        job_id: str,
+        attachment: _File,
+        source_path: Path,
+        markdown_path: Path,
+    ) -> dict[str, Any]:
+        return {
+            "job_id": job_id,
+            "message_id": attachment.message_id,
+            "source_create_time": attachment.created_at,
+            "sender_name": attachment.sender_name,
+            "filename": source_path.name,
+            "source_path": str(source_path),
+            "markdown_path": str(markdown_path),
+            "profile_id": self.profile.id,
+        }
 
     def _latest_matching_mention(self, pair_key: tuple[str, str], created_at: float) -> _Mention | None:
         candidates = [mention for mention in self._mentions.get(pair_key, []) if abs(created_at - mention.created_at) <= self._window_seconds]
