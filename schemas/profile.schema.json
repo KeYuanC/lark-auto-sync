@@ -76,8 +76,17 @@
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
-          "match": {"$ref": "#/$defs/route_section"},
-          "action": {"$ref": "#/$defs/route_section"}
+          "match": {
+            "oneOf": [
+              {"$ref": "#/$defs/predicate"},
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/predicate"}
+              }
+            ]
+          },
+          "action": {"$ref": "#/$defs/route_action"}
         }
       }
     },
@@ -122,14 +131,77 @@
     }
   },
   "$defs": {
-    "route_section": {
+    "route_action": {
       "type": "object",
       "required": ["adapter"],
       "additionalProperties": false,
       "properties": {
-        "adapter": {"type": "string", "minLength": 1},
+        "adapter": {
+          "enum": [
+            "csv_update",
+            "csv_append",
+            "local_publish",
+            "github_publish",
+            "lark_receipt"
+          ]
+        },
         "config": {"type": "string", "minLength": 1}
       }
+    },
+    "predicate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["predicate"],
+          "additionalProperties": false,
+          "properties": {"predicate": {"const": "always"}}
+        },
+        {
+          "type": "object",
+          "required": ["predicate", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "predicate": {"const": "filename_contains"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["predicate"],
+          "additionalProperties": false,
+          "properties": {"predicate": {"const": "participant_in_filename"}}
+        },
+        {
+          "type": "object",
+          "required": ["predicate"],
+          "additionalProperties": false,
+          "properties": {"predicate": {"const": "csv_unique_row"}}
+        },
+        {
+          "type": "object",
+          "required": ["predicate"],
+          "additionalProperties": false,
+          "properties": {"predicate": {"const": "csv_row_missing"}}
+        },
+        {
+          "type": "object",
+          "required": ["predicate", "field"],
+          "additionalProperties": false,
+          "properties": {
+            "predicate": {"const": "field_complete"},
+            "field": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["predicate", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "predicate": {"const": "previous_owner_equals"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
     }
   }
 }

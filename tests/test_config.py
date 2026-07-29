@@ -143,6 +143,57 @@ class ProfileTests(unittest.TestCase):
                 with self.subTest(field=field), self.assertRaises(ProfileError):
                     load_profile(escaping)
 
+    def test_validates_router_predicate_grammar_and_action_config_path(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            valid = root / "routed.yaml"
+            valid.write_text(
+                "profile:\n"
+                "  id: demo\n"
+                "  version: 1\n"
+                "workspace:\n"
+                "  root: ./workspace\n"
+                "source:\n"
+                "  chat_ids: [oc_demo]\n"
+                "routes:\n"
+                "  - id: update-plan\n"
+                "    match:\n"
+                "      predicate: filename_contains\n"
+                "      value: 进阶\n"
+                "    action:\n"
+                "      adapter: csv_update\n"
+                "      config: config/weekly-plan.yaml\n",
+                encoding="utf-8",
+            )
+
+            profile = load_profile(valid)
+
+            self.assertEqual(profile.data["routes"][0]["action"]["adapter"], "csv_update")
+            self.assertEqual(
+                profile.resolve_path(profile.data["routes"][0]["action"]["config"]),
+                root / "workspace" / "config" / "weekly-plan.yaml",
+            )
+
+            invalid = root / "invalid-predicate.yaml"
+            invalid.write_text(
+                "profile:\n"
+                "  id: demo\n"
+                "  version: 1\n"
+                "workspace:\n"
+                "  root: ./workspace\n"
+                "source:\n"
+                "  chat_ids: [oc_demo]\n"
+                "routes:\n"
+                "  - id: invalid\n"
+                "    match:\n"
+                "      predicate: arbitrary_code\n"
+                "    action:\n"
+                "      adapter: csv_update\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ProfileError):
+                load_profile(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

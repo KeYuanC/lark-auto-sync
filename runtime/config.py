@@ -86,10 +86,9 @@ def _validate_profile_paths(profile: Profile) -> None:
             _resolve_profile_path(profile, value, ".".join(field_path))
 
     for route in profile.data.get("routes", []):
-        for section in ("match", "action"):
-            value = route.get(section, {}).get("config")
-            if value is not None:
-                _resolve_profile_path(profile, value, f"routes.{route['id']}.{section}.config")
+        value = route["action"].get("config")
+        if value is not None:
+            _resolve_profile_path(profile, value, f"routes.{route['id']}.action.config")
 
 
 def _resolve_profile_path(profile: Profile, value: str, field: str) -> Path:
