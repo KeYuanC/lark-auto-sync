@@ -34,6 +34,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["errors"], [])
             self.assertEqual(payload["details"]["jobs"], [])
 
+    def test_heartbeat_prompt_is_printed_without_json(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            profile = root / "profile.yaml"
+            profile.write_text(_profile_text(), encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main(["--profile", str(profile), "heartbeat-prompt"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Process the Lark Auto Sync extraction queue", output.getvalue())
+
     def test_finalize_missing_job_is_a_structured_error(self):
         with TemporaryDirectory() as raw_root:
             root = Path(raw_root)

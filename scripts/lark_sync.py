@@ -104,7 +104,18 @@ def _doctor(profile: Any) -> dict[str, Any]:
         "git": bool(shutil.which("git")),
         "gh": bool(shutil.which("gh")),
     }
-    return _envelope(True, "doctor", profile.id, "ok", details={"profile_valid": True, "dependencies": dependencies})
+    authentication = "unavailable"
+    if dependencies["lark_cli"]:
+        try:
+            from runtime.lark_client import LarkClient
+            auth = LarkClient().auth_status()
+            authentication = "ready" if isinstance(auth, dict) else "invalid_response"
+        except Exception:
+            authentication = "failed"
+    errors = [name + "_unavailable" for name, available in dependencies.items() if not available]
+    if authentication != "ready":
+        errors.append("lark_auth_" + authentication)
+    return _envelope(not errors, "doctor", profile.id, "ok" if not errors else "failed", errors, details={"profile_valid": True, "dependencies": dependencies, "lark_auth": authentication})
 
 
 def _queue_list(profile: Any) -> dict[str, Any]:
@@ -200,6 +211,9 @@ def _emit(args: argparse.Namespace, payload: dict[str, Any]) -> int:
         print(f"{payload['operation']}: {payload['status']}")
         for error in payload["errors"]:
             print(f"- {error}")
+        prompt = (payload.get("details") or {}).get("prompt")
+        if isinstance(prompt, str):
+            print(prompt)
     return 0 if payload["ok"] else 1
 
 
