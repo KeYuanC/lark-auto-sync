@@ -1,108 +1,123 @@
-"""Narrow, injectable adapter around the locally installed ``lark-cli``."""
+"""Restricted adapter for the small Lark CLI surface the collector needs."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any
 
 
+_SAFE_REMOTE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$")
+
+
 class LarkClientError(RuntimeError):
-    """The fixed local Lark client operation could not be completed."""
+    """A fixed Lark CLI operation could not be completed safely."""
 
 
 class LarkClient:
-    """Expose only the Lark operations needed by the sync runtime.
+    """A narrow, injectable adapter with no arbitrary command interface."""
 
-    The class intentionally has no public generic command method. All CLI
-    arguments are fixed by one of the methods below, with message and file
-    identifiers treated as data rather than command fragments.
-    """
-
-    def __init__(self, executable: Path | None = None, *, timeout_seconds: int = 30) -> None:
-        if timeout_seconds < 1:
-            raise ValueError("invalid_timeout")
-        self.executable = Path(executable) if executable is not None else self._discover()
-        self.timeout_seconds = timeout_seconds
+    def __init__(self, executable: str | None = None) -> None:
+        self._executable = executable or self._discover_executable()
+        self._file_messages: dict[str, str] = {}
 
     def recent_messages(self, chat_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
-        if not isinstance(chat_id, str) or not chat_id or limit < 1 or limit > 500:
-            raise ValueError("invalid_recent_messages_request")
-        result = self._run_json(
-            ["im", "message", "list", "--chat-id", chat_id, "--limit", str(limit), "--json"]
+        self._require_remote_id(chat_id, "chat_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise LarkClientError("invalid_page_size")
+        payload = self._run_cli(
+            ("im", "+chat-messages-list", "--chat-id", chat_id, "--page-size", str(limit), "--format", "json", "--as", "user"),
+            timeout=60,
         )
-        if isinstance(result, list):
-            messages = result
-        elif isinstance(result, dict):
-            messages = result.get("items", result.get("data", []))
-        else:
-            raise LarkClientError("invalid_lark_response")
-        if not isinstance(messages, list) or not all(isinstance(item, dict) for item in messages):
-            raise LarkClientError("invalid_lark_response")
-        return messages
+        data = payload.get("data") if isinstance(payload, dict) else None
+        messages = data.get("messages") if isinstance(data, dict) else None
+        if not isinstance(messages, list):
+            return []
+        return [message for message in messages if isinstance(message, dict)]
 
     def download_file(self, file_key: str, destination: Path) -> None:
-        if not _safe_identifier(file_key):
-            raise ValueError("invalid_file_key")
+        self._require_remote_id(file_key, "file_key")
+        message_id = self._file_messages.get(file_key)
+        if message_id is None:
+            raise LarkClientError("file_message_unknown")
         destination = Path(destination)
+        if not destination.name or destination.name in {".", ".."}:
+            raise LarkClientError("invalid_destination")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        self._run(
-            ["im", "file", "download", "--file-key", file_key, "--output", str(destination)]
+        self._run_cli(
+            (
+                "im",
+                "+messages-resources-download",
+                "--message-id",
+                message_id,
+                "--file-key",
+                file_key,
+                "--type",
+                "file",
+                "--output",
+                str(destination),
+                "--as",
+                "user",
+            ),
+            timeout=120,
         )
         if not destination.is_file():
             raise LarkClientError("download_output_missing")
 
     def reply_message(self, message_id: str, text: str) -> dict[str, Any]:
-        if not _safe_identifier(message_id) or not isinstance(text, str) or not text:
-            raise ValueError("invalid_reply_request")
-        result = self._run_json(
-            ["im", "message", "reply", "--message-id", message_id, "--text", text, "--json"]
+        self._require_remote_id(message_id, "message_id")
+        if not isinstance(text, str) or not text:
+            raise LarkClientError("invalid_reply_text")
+        return self._run_cli(
+            ("im", "+messages-reply", "--message-id", message_id, "--text", text, "--as", "user", "--format", "json"),
+            timeout=60,
         )
-        if not isinstance(result, dict):
-            raise LarkClientError("invalid_lark_response")
-        return result
 
     def auth_status(self) -> dict[str, Any]:
-        result = self._run_json(["auth", "status", "--json"])
-        if not isinstance(result, dict):
-            raise LarkClientError("invalid_lark_response")
-        return result
+        return self._run_cli(("auth", "status", "--json"), timeout=30)
+
+    def _remember_file_message(self, file_key: str, message_id: str) -> None:
+        """Bind a resource returned by Lark to its source message internally."""
+        self._require_remote_id(file_key, "file_key")
+        self._require_remote_id(message_id, "message_id")
+        self._file_messages[file_key] = message_id
 
     @staticmethod
-    def _discover() -> Path:
-        for name in ("lark-cli.exe", "lark-cli"):
-            found = shutil.which(name)
-            if found:
-                return Path(found)
+    def _discover_executable() -> str:
+        found = shutil.which("lark-cli") or shutil.which("lark-cli.cmd")
+        if found:
+            return found
         raise LarkClientError("lark_cli_not_found")
 
-    def _run_json(self, arguments: list[str]) -> Any:
-        completed = self._run(arguments)
-        try:
-            return json.loads(completed.stdout)
-        except json.JSONDecodeError as error:
-            raise LarkClientError("invalid_lark_json") from error
+    @staticmethod
+    def _require_remote_id(value: str, field: str) -> None:
+        if not isinstance(value, str) or not _SAFE_REMOTE_ID.fullmatch(value):
+            raise LarkClientError(f"invalid_{field}")
 
-    def _run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    def _run_cli(self, arguments: tuple[str, ...], *, timeout: int) -> dict[str, Any]:
         try:
             completed = subprocess.run(
-                [str(self.executable), *arguments],
+                [self._executable, *arguments],
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout_seconds,
+                timeout=timeout,
                 shell=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise LarkClientError("lark_cli_unavailable") from error
+        output = completed.stdout.strip()
         if completed.returncode != 0:
-            raise LarkClientError(f"lark_cli_failed:{completed.returncode}")
-        return completed
-
-
-def _safe_identifier(value: object) -> bool:
-    if not isinstance(value, str) or not value or len(value) > 256:
-        return False
-    return all(character.isalnum() or character in "_-" for character in value)
+            raise LarkClientError("lark_cli_failed")
+        if not output:
+            return {}
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError as error:
+            raise LarkClientError("lark_cli_invalid_json") from error
+        if not isinstance(payload, dict):
+            raise LarkClientError("lark_cli_invalid_json")
+        return payload
