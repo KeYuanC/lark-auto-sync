@@ -76,6 +76,35 @@ class ServiceManagerTests(unittest.TestCase):
             self.assertEqual(calls[0][0:4], ["schtasks.exe", "/Create", "/TN", "LarkAutoSync-demo"])
             self.assertEqual(calls[1], ["schtasks.exe", "/Delete", "/TN", "LarkAutoSync-demo", "/F"])
 
+    def test_windows_status_requires_running_task_state(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            responses = iter([
+                subprocess.CompletedProcess([], 0, '"HOST","\\LarkAutoSync-demo","N/A","Running"\n', ""),
+                subprocess.CompletedProcess([], 0, '"HOST","\\LarkAutoSync-demo","N/A","Ready"\n', ""),
+            ])
+
+            def runner(arguments, **_kwargs):
+                return next(responses)
+
+            manager = ServiceManager(_profile(root), platform_name="windows", runner=runner)
+            self.assertTrue(manager.status())
+            self.assertFalse(manager.status())
+
+    def test_windows_run_starts_registered_task(self):
+        with TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            calls: list[list[str]] = []
+
+            def runner(arguments, **_kwargs):
+                calls.append(list(arguments))
+                return subprocess.CompletedProcess(arguments, 0, "", "")
+
+            manager = ServiceManager(_profile(root), platform_name="windows", runner=runner)
+            manager.run()
+
+            self.assertEqual(calls, [["schtasks.exe", "/Run", "/TN", "LarkAutoSync-demo"]])
+
 
 def _profile(root: Path) -> Profile:
     workspace = root / "workspace"

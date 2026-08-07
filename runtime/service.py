@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import csv
+import io
 from pathlib import Path
 import plistlib
 import subprocess
@@ -127,9 +129,27 @@ class ServiceManager:
 
     def status(self) -> bool:
         if self.platform_name.startswith("win"):
-            return self._run(["schtasks.exe", "/Query", "/TN", self.service_identity], allow_failure=True).returncode == 0
+            result = self._run(
+                ["schtasks.exe", "/Query", "/TN", self.service_identity, "/FO", "CSV", "/NH"],
+                allow_failure=True,
+            )
+            if result.returncode != 0:
+                return False
+            rows = list(csv.reader(io.StringIO(result.stdout or "")))
+            if not rows or not rows[0]:
+                return False
+            return rows[0][-1].strip().casefold() in {"running", "正在运行", "运行中"}
         if self.platform_name in {"darwin", "macos"}:
             return self.definition_path.is_file()
+        raise ServiceDefinitionError("unsupported_platform")
+
+    def run(self) -> None:
+        if self.platform_name.startswith("win"):
+            self._run(["schtasks.exe", "/Run", "/TN", self.service_identity])
+            return
+        if self.platform_name in {"darwin", "macos"}:
+            self._run(["launchctl", "kickstart", f"gui/{os.getuid()}/{self.service_identity}"])
+            return
         raise ServiceDefinitionError("unsupported_platform")
 
     def _run(self, arguments: list[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:

@@ -37,12 +37,14 @@ python scripts/lark_sync.py init --profile <profile.yaml>
 python scripts/lark_sync.py doctor --profile <profile.yaml>
 python scripts/lark_sync.py start --profile <profile.yaml>
 python scripts/lark_sync.py status --profile <profile.yaml>
+python scripts/lark_sync.py scan --profile <profile.yaml>
 python scripts/lark_sync.py queue list --profile <profile.yaml>
 python scripts/lark_sync.py logs --profile <profile.yaml>
 python scripts/lark_sync.py stop --profile <profile.yaml>
 ```
 
-On Windows, `start` installs and starts the one Task Scheduler task for that Profile.
+On Windows, `start` installs and starts the one Task Scheduler task for that Profile;
+the task owns the foreground service process so its restart policy can recover an exit.
 On macOS, it installs and loads the one LaunchAgent for that Profile. Do not edit a
 generated service definition by hand. Stop the service before changing Profile
 allowlists or paths, validate with `doctor`, then start it again.
@@ -58,10 +60,12 @@ python scripts/lark_sync.py heartbeat-prompt --profile <profile.yaml>
 ```
 
 Create or update the current task's recurring heartbeat using that output. Each run
-lists the queue, does nothing when it is empty, processes at most ten jobs, reads
-only each job's Markdown, filename, and extraction schema, writes schema-valid JSON,
-and calls `queue finalize` for successful items. A failure leaves the source and job
-in place for a later retry.
+checks `status`, starts the service if needed, runs `scan`, and only then lists the
+queue. An empty queue after a successful scan means no currently discoverable work;
+an empty queue without a healthy scan must be reported as an intake failure. The run
+processes at most ten jobs, reads only each job's Markdown, filename, and extraction
+schema, writes schema-valid JSON, and calls `queue finalize` for successful items. A
+failure leaves the source and job in place for a later retry.
 
 ## Untrusted attachments
 
@@ -75,7 +79,8 @@ the publisher accepts only Profile-approved destinations.
 
 Run `doctor` first for missing Python packages, `lark-cli` login, GitHub access, a
 missing Word or LibreOffice converter, invalid Profile paths, or an unavailable
-repository. Run `queue list` and `logs` for failed jobs. Correct the underlying
+repository. Run `status`, then `scan`, then `queue list` and `logs` for failed jobs.
+If `status` is stopped, run `start` before scanning. Correct the underlying
 dependency or Profile, then retry the same queued job; do not copy a failed source
 into a destination manually or delete its staging file.
 

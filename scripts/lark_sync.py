@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("start")
     commands.add_parser("stop")
     commands.add_parser("status")
+    commands.add_parser("scan")
     commands.add_parser("logs")
     commands.add_parser("heartbeat-prompt")
     commands.add_parser("service-run")
@@ -73,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(args, _envelope(True, "logs", profile.id, "ok", details={"path": str(create_state_paths(profile).logs)}))
     if args.command in {"start", "stop", "status"}:
         return _emit(args, _service_command(profile, args.command))
+    if args.command == "scan":
+        return _emit(args, _scan_profile(profile))
     if args.command == "service-run":
         return _emit(args, _service_run(profile))
     if args.command == "queue" and args.queue_command == "list":
@@ -145,6 +148,7 @@ def _service_command(profile: Any, command: str) -> dict[str, Any]:
         manager = ServiceManager(profile)
         if command == "start":
             path = manager.install()
+            manager.run()
             return _envelope(True, command, profile.id, "started", details={"definition": str(path)})
         if command == "stop":
             manager.uninstall()
@@ -152,6 +156,16 @@ def _service_command(profile: Any, command: str) -> dict[str, Any]:
         return _envelope(True, command, profile.id, "running" if manager.status() else "stopped")
     except (OSError, ValueError):
         return _envelope(False, command, profile.id, "failed", ["service_operation_failed"])
+
+
+def _scan_profile(profile: Any) -> dict[str, Any]:
+    try:
+        from runtime.collector import Collector
+        from runtime.lark_client import LarkClient
+        queued = Collector(profile, LarkClient()).scan_once()
+    except Exception:
+        return _envelope(False, "scan", profile.id, "failed", ["historical_scan_failed"])
+    return _envelope(True, "scan", profile.id, "completed", details={"queued_jobs": queued})
 
 
 def _service_run(profile: Any) -> dict[str, Any]:

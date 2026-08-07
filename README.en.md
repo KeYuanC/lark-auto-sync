@@ -112,8 +112,13 @@ python scripts\lark_sync.py heartbeat-prompt --profile D:\lark-auto-sync-private
 ```
 
 Configure the `heartbeat-prompt` output on the **current Codex task**. Each run
-processes at most ten queued jobs, changes nothing when the queue is empty, and
-leaves failed jobs available for a later retry.
+checks service health, runs a bounded historical scan, and only then processes at
+most ten queued jobs. An empty queue alone does not prove that Feishu has no new
+records; failed intake or recovery leaves the source and job available for retry.
+
+The Windows task owns the foreground collector process. This is required for Task
+Scheduler restart policies to work: a detached child can die while the parent task
+still reports success.
 
 ## Core Safety Boundaries
 

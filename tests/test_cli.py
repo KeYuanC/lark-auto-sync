@@ -46,6 +46,9 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertIn("Process the Lark Auto Sync extraction queue", output.getvalue())
+            self.assertIn(" status`", output.getvalue())
+            self.assertIn(" scan`", output.getvalue())
+            self.assertIn("An empty queue alone does not prove", output.getvalue())
 
     def test_finalize_missing_job_is_a_structured_error(self):
         with TemporaryDirectory() as raw_root:
